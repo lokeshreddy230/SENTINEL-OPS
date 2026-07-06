@@ -175,7 +175,23 @@ export default function Dashboard() {
   const [palette, setPalette] = useState<"emerald" | "indigo" | "amber" | "teal">("emerald");
   const [focusedMetric, setFocusedMetric] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState<boolean>(false);
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const [apiUrl, setApiUrl] = useState<string>("http://localhost:8000");
+  const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
+  const [tempUrl, setTempUrl] = useState<string>("http://localhost:8000");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("sentinelops_api_url");
+      if (saved) {
+        setApiUrl(saved);
+        setTempUrl(saved);
+      } else {
+        const defaultUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        setApiUrl(defaultUrl);
+        setTempUrl(defaultUrl);
+      }
+    }
+  }, []);
 
   // Hydration handling
   useEffect(() => {
@@ -210,7 +226,7 @@ export default function Dashboard() {
   useEffect(() => {
     const checkHealth = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/health`);
+        const res = await fetch(`${apiUrl}/api/health`);
         if (res.ok) {
           setBackendConnected(true);
           // Initial fetches
@@ -230,12 +246,12 @@ export default function Dashboard() {
     checkHealth();
     const interval = setInterval(checkHealth, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [apiUrl]);
 
   // Fetch functions
   const fetchServices = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/services`);
+      const res = await fetch(`${apiUrl}/api/services`);
       if (res.ok) {
         const data = await res.json();
         setServices(data);
@@ -247,7 +263,7 @@ export default function Dashboard() {
 
   const fetchIncidents = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/incidents`);
+      const res = await fetch(`${apiUrl}/api/incidents`);
       if (res.ok) {
         const data = await res.json();
         setIncidents(data);
@@ -261,7 +277,7 @@ export default function Dashboard() {
 
   const fetchPendingApprovals = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/approvals`);
+      const res = await fetch(`${apiUrl}/api/approvals`);
       if (res.ok) {
         const data = await res.json();
         setPendingApprovals(data);
@@ -273,7 +289,7 @@ export default function Dashboard() {
 
   const fetchHardwareLogs = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/hardware/logs`);
+      const res = await fetch(`${apiUrl}/api/hardware/logs`);
       if (res.ok) {
         const data = await res.json();
         setHardwareLogs(data);
@@ -285,7 +301,7 @@ export default function Dashboard() {
 
   const fetchReports = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/reports`);
+      const res = await fetch(`${apiUrl}/api/reports`);
       if (res.ok) {
         const data = await res.json();
         setCompletedReports(data);
@@ -321,7 +337,7 @@ export default function Dashboard() {
   // SSE Event stream listener
   useEffect(() => {
     setSseStatus("connecting");
-    const es = new EventSource(`${API_URL}/api/events/stream`);
+    const es = new EventSource(`${apiUrl}/api/events/stream`);
 
     es.onopen = () => {
       setSseStatus("connected");
@@ -428,11 +444,11 @@ export default function Dashboard() {
     return () => {
       es.close();
     };
-  }, [selectedIncident]);
+  }, [apiUrl, selectedIncident]);
 
   const fetchIncidentDetails = async (incId: string) => {
     try {
-      const res = await fetch(`${API_URL}/api/incidents/${incId}`);
+      const res = await fetch(`${apiUrl}/api/incidents/${incId}`);
       if (res.ok) {
         const data = await res.json();
         setSelectedIncident(data);
@@ -451,7 +467,7 @@ export default function Dashboard() {
   const triggerScenario = async (scenarioId: string) => {
     logger("Operator", `Triggering scenario scenario_${scenarioId}`, "warn");
     try {
-      const res = await fetch(`${API_URL}/api/demo/scenario/${scenarioId}`, {
+      const res = await fetch(`${apiUrl}/api/demo/scenario/${scenarioId}`, {
         method: "POST"
       });
       if (res.ok) {
@@ -493,7 +509,7 @@ export default function Dashboard() {
     
     logger("Operator", `Approving remediation plan #${planId} for incident ${plan.incident_id}`, "info");
     try {
-      const res = await fetch(`${API_URL}/api/incidents/${plan.incident_id}/approve`, {
+      const res = await fetch(`${apiUrl}/api/incidents/${plan.incident_id}/approve`, {
         method: "POST"
       });
       if (res.ok) {
@@ -512,7 +528,7 @@ export default function Dashboard() {
 
     logger("Operator", `Rejecting remediation plan #${planId} for incident ${plan.incident_id}`, "info");
     try {
-      const res = await fetch(`${API_URL}/api/incidents/${plan.incident_id}/reject`, {
+      const res = await fetch(`${apiUrl}/api/incidents/${plan.incident_id}/reject`, {
         method: "POST"
       });
       if (res.ok) {
@@ -589,9 +605,13 @@ export default function Dashboard() {
               </button>
             </div>
 
-            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-card border border-border text-xs shadow-sm">
+            <div 
+              onClick={() => setShowConfigModal(true)}
+              className="flex items-center gap-2 px-3 py-1 rounded-full bg-card border border-border text-xs shadow-sm hover:border-primary/50 cursor-pointer transition-colors duration-200"
+              title="Click to configure API URL"
+            >
               <span className={`h-2 w-2 rounded-full ${backendConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" : "bg-red-500"}`}></span>
-              <span className="text-muted-foreground">Backend:</span>
+              <span className="text-muted-foreground font-semibold">Backend:</span>
               <span className="font-mono text-foreground">{backendConnected ? "Connected" : "Disconnected"}</span>
             </div>
             
@@ -603,6 +623,61 @@ export default function Dashboard() {
           </div>
         </div>
       </header>
+
+      {/* API Endpoint Configuration Modal */}
+      {showConfigModal && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+            <button 
+              onClick={() => setShowConfigModal(false)}
+              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground p-1 rounded-lg cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <h3 className="text-base font-semibold text-foreground mb-1 flex items-center gap-2">
+              <Zap className="h-5 w-5 text-primary animate-pulse" /> Configure API URL
+            </h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              Set the backend API connection endpoint for SentinelOps SRE metrics.
+            </p>
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider block mb-1">API Address</label>
+                <input 
+                  type="text" 
+                  value={tempUrl} 
+                  onChange={(e) => setTempUrl(e.target.value)} 
+                  placeholder="e.g. http://localhost:8000 or https://api.my-sentinel.com"
+                  className="w-full bg-background border border-border rounded-xl px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+              <div className="text-[10px] text-muted-foreground leading-relaxed bg-background/50 p-2.5 rounded-lg border border-border">
+                <strong>Note:</strong> Connecting from HTTPS pages (GitHub Pages) to insecure HTTP endpoints will be blocked by browsers. Use an HTTPS tunnel (e.g. ngrok) or cloud hosting.
+              </div>
+              <div className="flex gap-2 justify-end mt-2">
+                <button 
+                  onClick={() => setShowConfigModal(false)}
+                  className="px-3.5 py-1.5 rounded-xl border border-border text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => {
+                    localStorage.setItem("sentinelops_api_url", tempUrl);
+                    setApiUrl(tempUrl);
+                    setShowConfigModal(false);
+                    // Force refresh health check
+                    window.location.reload();
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-primary text-background text-xs font-bold hover:bg-primary/95 transition-colors cursor-pointer"
+                >
+                  Save URL
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-1 max-w-7xl w-full mx-auto px-4 py-6 gap-6">
         
