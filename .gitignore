@@ -1,0 +1,69 @@
+# ============================
+# SentinelOps Root .gitignore
+# ============================
+
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+
+# ----- Virtual Environments -----
+venv/
+.venv/
+env/
+ENV/
+
+# ----- Testing -----
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# ----- SQLite Databases -----
+*.db
+
+# ----- ChromaDB Vector Store -----
+chroma_db_store/
+
+# ----- Node.js -----
+node_modules/
+
+# ----- Next.js -----
+.next/
+out/
+
+# ----- Environment Variables -----
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ----- IDE & Editor -----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ----- OS Files -----
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ----- Logs -----
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ----- Misc -----
+*.pem
+.vercel
+*.tsbuildinfo

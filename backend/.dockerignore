@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.db
+.pytest_cache/
+chroma_db_store/
+.env
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
