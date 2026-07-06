@@ -34,6 +34,7 @@ jobs:
         run: |
           cd frontend
           npm run build
+          touch out/.nojekyll
         env:
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL || 'http://localhost:8000' }}
 
