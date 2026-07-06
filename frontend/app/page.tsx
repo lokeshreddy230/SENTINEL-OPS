@@ -59,6 +59,11 @@ interface Metric {
   active_connections: number;
   db_pool_utilization: number;
   timestamp: string;
+  pue?: number;
+  it_power_kw?: number;
+  cooling_power_kw?: number;
+  diurnal_factor?: number;
+  temperature?: number;
 }
 
 interface Incident {
