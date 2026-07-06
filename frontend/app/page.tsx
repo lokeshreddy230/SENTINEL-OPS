@@ -198,6 +198,81 @@ export default function Dashboard() {
     setIsMounted(true);
   }, []);
 
+  // Continuous client-side simulation loop (when backend is disconnected)
+  useEffect(() => {
+    if (backendConnected) return;
+
+    const interval = setInterval(() => {
+      const timestamp = new Date().toISOString();
+      const timeLabel = new Date(timestamp).toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit' 
+      });
+
+      const mockMetrics: Record<string, Metric> = {};
+      const activeServices = services;
+
+      activeServices.forEach(s => {
+        let cpu = 10 + Math.random() * 15;
+        let mem = 20 + Math.random() * 10;
+        let req = 40000 + Math.random() * 20000;
+        let err = 0.0;
+        let lat = 5 + Math.random() * 15;
+
+        if (s.status === "critical") {
+          cpu = 85 + Math.random() * 10;
+          err = 15 + Math.random() * 10;
+          lat = 250 + Math.random() * 200;
+        } else if (s.status === "warning") {
+          cpu = 60 + Math.random() * 15;
+          err = 2 + Math.random() * 3;
+          lat = 80 + Math.random() * 40;
+        }
+
+        mockMetrics[s.id] = {
+          service_id: s.id,
+          cpu_usage: parseFloat(cpu.toFixed(1)),
+          memory_usage: parseFloat(mem.toFixed(1)),
+          request_rate: parseFloat(req.toFixed(0)),
+          error_rate: parseFloat(err.toFixed(2)),
+          latency: parseFloat(lat.toFixed(1)),
+          active_connections: 15,
+          db_pool_utilization: s.status === "critical" ? 0.98 : 0.15,
+          timestamp,
+          pue: 1.100 + Math.random() * 0.01
+        };
+      });
+
+      setMetrics(mockMetrics);
+
+      setHistoricalData(prev => {
+        let updated = [...prev];
+        const newTick: any = { time: timeLabel };
+        
+        activeServices.forEach(s => {
+          const keyId = s.id.replace(/-/g, "_");
+          const m = mockMetrics[s.id];
+          if (m) {
+            newTick[`${keyId}_cpu`] = m.cpu_usage;
+            newTick[`${keyId}_mem`] = m.memory_usage;
+            newTick[`${keyId}_lat`] = m.latency;
+            newTick[`${keyId}_err`] = m.error_rate;
+          }
+        });
+
+        updated.push(newTick);
+        if (updated.length > 15) {
+          updated = updated.slice(updated.length - 15);
+        }
+        return updated;
+      });
+
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [backendConnected, services]);
+
   // Fetch reports when switching to the Reports tab
   useEffect(() => {
     if (activeTab === "reports") {
@@ -481,25 +556,107 @@ export default function Dashboard() {
 
   const simulateOfflineScenario = (scenarioId: string) => {
     logger("System", "Running DEMO fallback mode (Backend offline)", "warn");
+    
+    if (scenarioId === "reset") {
+      setServices(prev => prev.map(s => ({ ...s, status: "healthy" })));
+      setIncidents([]);
+      setPendingApprovals([]);
+      setSelectedIncident(null);
+      logger("Core", "Simulation reset to baseline state.", "info");
+      return;
+    }
+
+    const targetService = services.find(s => s.id === "payment-service") ? "payment-service" : "database_service";
+    const serviceName = targetService === "payment-service" ? "Payment Service" : "Database Service";
+    
     if (scenarioId === "1") {
-      logger("Detector", "CPU / Connection pool usage anomaly on database_service detected", "error");
-      setServices(prev => prev.map(s => s.id === "database_service" ? { ...s, status: "critical" } : s));
-      // Simulate incident
+      logger("Detector", `CPU / Connection pool usage anomaly on ${targetService} detected`, "error");
+      setServices(prev => prev.map(s => s.id === targetService ? { ...s, status: "critical" } : s));
+      
       const mockInc: Incident = {
         id: "inc_db_pool",
-        title: "database_service Connection Pool Exhaustion",
-        description: "Database queries timing out. Gateway reporting high latency.",
+        title: `${serviceName} Connection Pool Exhaustion`,
+        description: "Database connection pool saturated (100% capacity). Query latency spiking.",
         severity: "CRITICAL",
-        status: "investigating",
-        service_id: "database_service",
+        status: "proposed",
+        service_id: targetService,
         detected_at: new Date().toISOString(),
         resolved_at: null,
-        root_cause: null,
-        confidence: null
+        root_cause: "database_service connection pool limits reached",
+        confidence: 0.95
       };
+
       setIncidents(prev => [mockInc, ...prev]);
       setSelectedIncident(mockInc);
+
+      const mockPlan: RemediationPlan = {
+        id: 101,
+        incident_id: "inc_db_pool",
+        runbook: "increase_demo_pool_limit",
+        target: targetService,
+        reason: "Connection pool is saturated. Scale pool size limit from 20 to 50 connections.",
+        risk: "MEDIUM",
+        rollback_available: true,
+        status: "proposed"
+      };
+
+      setPendingApprovals([mockPlan]);
+      setSelectedIncidentPlans([mockPlan]);
+      
+      setSelectedIncidentEvents([
+        { id: 1, incident_id: "inc_db_pool", timestamp: new Date().toISOString(), sender: "Detector", message: `Incident detected on service ${targetService}` },
+        { id: 2, incident_id: "inc_db_pool", timestamp: new Date().toISOString(), sender: "Investigator", message: "Investigator Agent starting log diagnostics..." },
+        { id: 3, incident_id: "inc_db_pool", timestamp: new Date().toISOString(), sender: "Investigator", message: "Root cause found: Database pool exhausted." },
+        { id: 4, incident_id: "inc_db_pool", timestamp: new Date().toISOString(), sender: "Remediator", message: "Proposing connection pool limit scaling runbook." }
+      ]);
+      
       setActiveTab("incidents");
+    } else if (scenarioId === "2") {
+      const memTarget = services.find(s => s.id === "search-service") ? "search-service" : "payment_service";
+      const memName = memTarget === "search-service" ? "Search Service" : "Payment Service";
+      
+      logger("Detector", `Linear Ewma memory usage leak on ${memTarget} detected`, "error");
+      setServices(prev => prev.map(s => s.id === memTarget ? { ...s, status: "critical" } : s));
+      
+      const mockInc: Incident = {
+        id: "inc_mem_leak",
+        title: `${memName} Memory Leak Outage`,
+        description: "Memory consumption growing linearly. Swapping detected.",
+        severity: "HIGH",
+        status: "proposed",
+        service_id: memTarget,
+        detected_at: new Date().toISOString(),
+        resolved_at: null,
+        root_cause: "Memory leak in user query session cache handler",
+        confidence: 0.88
+      };
+
+      setIncidents(prev => [mockInc, ...prev]);
+      setSelectedIncident(mockInc);
+
+      const mockPlan: RemediationPlan = {
+        id: 102,
+        incident_id: "inc_mem_leak",
+        runbook: "rolling_restart",
+        target: memTarget,
+        reason: "Engage rolling restart of microservice containers to flush leak memory.",
+        risk: "HIGH",
+        rollback_available: true,
+        status: "proposed"
+      };
+
+      setPendingApprovals([mockPlan]);
+      setSelectedIncidentPlans([mockPlan]);
+      
+      setSelectedIncidentEvents([
+        { id: 1, incident_id: "inc_mem_leak", timestamp: new Date().toISOString(), sender: "Detector", message: `Memory threshold anomaly detected on ${memTarget}` },
+        { id: 2, incident_id: "inc_mem_leak", timestamp: new Date().toISOString(), sender: "Investigator", message: "Memory leak pattern detected. Running diagnostics." },
+        { id: 3, incident_id: "inc_mem_leak", timestamp: new Date().toISOString(), sender: "Remediator", message: "Proposing zero-downtime rolling restart runbook." }
+      ]);
+      
+      setActiveTab("incidents");
+    } else {
+      logger("Detector", `Telemetry anomaly detected for scenario ${scenarioId}`, "error");
     }
   };
 
@@ -508,6 +665,51 @@ export default function Dashboard() {
     if (!plan) return;
     
     logger("Operator", `Approving remediation plan #${planId} for incident ${plan.incident_id}`, "info");
+    
+    if (!backendConnected) {
+      logger("Core", `Remediation runbook approved: starting execution`, "info");
+      setPendingApprovals(prev => prev.filter(p => p.id !== planId));
+      
+      setTimeout(() => {
+        logger("Executor", `Executing runbook '${plan.runbook}' on target '${plan.target}'...`, "info");
+        
+        setTimeout(() => {
+          logger("Verifier", "Verification PASSED. Telemetry has returned to normal bounds.", "info");
+          
+          setIncidents(prev => prev.map(inc => inc.id === plan.incident_id ? { ...inc, status: "resolved", resolved_at: new Date().toISOString() } : inc));
+          setServices(prev => prev.map(s => s.id === plan.target ? { ...s, status: "healthy" } : s));
+          
+          if (selectedIncident && selectedIncident.id === plan.incident_id) {
+            setSelectedIncident(prev => prev ? { ...prev, status: "resolved", resolved_at: new Date().toISOString() } : null);
+            setSelectedIncidentEvents(prev => [
+              ...prev,
+              { id: 10, incident_id: plan.incident_id, timestamp: new Date().toISOString(), sender: "Executor", message: "Runbook executed successfully." },
+              { id: 11, incident_id: plan.incident_id, timestamp: new Date().toISOString(), sender: "Verifier", message: "Verification PASSED. Telemetry is stable." },
+              { id: 12, incident_id: plan.incident_id, timestamp: new Date().toISOString(), sender: "Reporter", message: "Incident post-mortem report compiled successfully." }
+            ]);
+          }
+
+          const newReport: PostMortem = {
+            id: completedReports.length + 1,
+            incident_id: plan.incident_id,
+            created_at: new Date().toISOString(),
+            mttd: 14.5,
+            mttr: 42.1,
+            root_cause: "database_service pool limits reached",
+            evidence: "SRE incident correlation timelines",
+            actions_executed: [{ runbook: plan.runbook, target: plan.target, status: "completed" }],
+            preventive_recommendations: "Add connection health alerts on database metrics.",
+            timeline: [
+              { timestamp: new Date().toISOString(), sender: "Detector", message: "Incident detected." },
+              { timestamp: new Date().toISOString(), sender: "Verifier", message: "Verification PASSED. Metrics restored." }
+            ]
+          };
+          setCompletedReports(prev => [newReport, ...prev]);
+        }, 3000);
+      }, 1500);
+      return;
+    }
+    
     try {
       const res = await fetch(`${apiUrl}/api/incidents/${plan.incident_id}/approve`, {
         method: "POST"
