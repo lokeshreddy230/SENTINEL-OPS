@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   Shield, 
   Activity, 
@@ -178,6 +178,8 @@ export default function Dashboard() {
   const [apiUrl, setApiUrl] = useState<string>("http://localhost:8000");
   const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
   const [tempUrl, setTempUrl] = useState<string>("http://localhost:8000");
+  
+  const hasSeeded = useRef(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -202,7 +204,30 @@ export default function Dashboard() {
   useEffect(() => {
     if (backendConnected) return;
 
+    if (!hasSeeded.current) {
+      const time = new Date().toLocaleTimeString();
+      setFeedEvents([
+        { time, sender: "System", msg: "SentinelOps local simulation environment initialized.", type: "info" },
+        { time, sender: "Detector", msg: "Scanning 5 registered microservices. Status: HEALTHY.", type: "info" }
+      ]);
+      hasSeeded.current = true;
+    }
+
     const interval = setInterval(() => {
+      // Periodically inject a random background SRE agent log (approx 10% chance every 2s)
+      if (Math.random() < 0.1) {
+        const randomLogs = [
+          { sender: "Detector", msg: "Service telemetry metrics parsed. Isolation Forest scores stable.", type: "info" },
+          { sender: "Investigator", msg: "Trace ID correlation scan complete. 0 anomalies detected.", type: "info" },
+          { sender: "System", msg: "Scraped Prometheus metrics endpoint. All targets responding.", type: "info" },
+          { sender: "Remediator", msg: "Running automated policy check. Clean state.", type: "info" },
+          { sender: "System", msg: "Connection pool utilization checks passed. DB status stable.", type: "info" },
+          { sender: "Detector", msg: "Analyzing log patterns for database_service. Errors: 0.00%.", type: "info" },
+          { sender: "Reporter", msg: "SRE health indexes synced. Cluster Workload Cycle: 1.00x.", type: "info" }
+        ];
+        const log = randomLogs[Math.floor(Math.random() * randomLogs.length)];
+        logger(log.sender, log.msg, log.type);
+      }
       const timestamp = new Date().toISOString();
       const timeLabel = new Date(timestamp).toLocaleTimeString([], { 
         hour: '2-digit', 
@@ -413,15 +438,20 @@ export default function Dashboard() {
   useEffect(() => {
     setSseStatus("connecting");
     const es = new EventSource(`${apiUrl}/api/events/stream`);
+    let loggedDisconnect = false;
 
     es.onopen = () => {
       setSseStatus("connected");
+      loggedDisconnect = false;
       logger("System", "Event stream established with SentinelOps core", "info");
     };
 
     es.onerror = () => {
       setSseStatus("disconnected");
-      logger("System", "Event stream disconnected. Retrying...", "warn");
+      if (!loggedDisconnect) {
+        logger("System", "Event stream disconnected. Running in Local Simulation mode.", "warn");
+        loggedDisconnect = true;
+      }
     };
 
     // Generic event list handler
@@ -655,6 +685,175 @@ export default function Dashboard() {
       ]);
       
       setActiveTab("incidents");
+    } else if (scenarioId === "3") {
+      logger("Detector", `Cascading timeout alerts detected on gateway, order_service, and database_service`, "error");
+      setServices(prev => prev.map(s => 
+        s.id === "database_service" ? { ...s, status: "critical" } : 
+        s.id === "order_service" || s.id === "gateway" ? { ...s, status: "warning" } : s
+      ));
+      
+      const mockInc: Incident = {
+        id: "inc_cascading_failure",
+        title: "Cascading Database Connection Failures",
+        description: "Database query latency spikes downstream. Causes Order service threads to queue and triggers cascading API Gateway 504 gateway timeouts.",
+        severity: "CRITICAL",
+        status: "proposed",
+        service_id: "database_service",
+        detected_at: new Date().toISOString(),
+        resolved_at: null,
+        root_cause: "Database pool exhaustion and query block propagation",
+        confidence: 0.92
+      };
+
+      setIncidents(prev => [mockInc, ...prev]);
+      setSelectedIncident(mockInc);
+
+      const mockPlan: RemediationPlan = {
+        id: 103,
+        incident_id: "inc_cascading_failure",
+        runbook: "scale_downstream_limits_and_restart",
+        target: "database_service",
+        reason: "Connection pool limit exhaustion propagates upstream. Apply connection scaling and flush cache pools.",
+        risk: "MEDIUM",
+        rollback_available: true,
+        status: "proposed"
+      };
+
+      setPendingApprovals([mockPlan]);
+      setSelectedIncidentPlans([mockPlan]);
+      
+      setSelectedIncidentEvents([
+        { id: 1, incident_id: "inc_cascading_failure", timestamp: new Date().toISOString(), sender: "Detector", message: "Telemetry anomaly detected on database_service." },
+        { id: 2, incident_id: "inc_cascading_failure", timestamp: new Date().toISOString(), sender: "Detector", message: "Downstream delays detected on order_service. Latency: 4200ms." },
+        { id: 3, incident_id: "inc_cascading_failure", timestamp: new Date().toISOString(), sender: "Detector", message: "API Gateway 504 rate spiked to 45%." },
+        { id: 4, incident_id: "inc_cascading_failure", timestamp: new Date().toISOString(), sender: "Investigator", message: "Running root-cause graph walk: database_service thread blocking." },
+        { id: 5, incident_id: "inc_cascading_failure", timestamp: new Date().toISOString(), sender: "Remediator", message: "Proposing cascading mitigation runbook." }
+      ]);
+      
+      setActiveTab("incidents");
+    } else if (scenarioId === "4") {
+      logger("Detector", "Auth Service container crash loop alert active", "error");
+      setServices(prev => prev.map(s => s.id === "auth_service" ? { ...s, status: "critical" } : s));
+      
+      const mockInc: Incident = {
+        id: "inc_gcp_rollout",
+        title: "GCP ServiceControl API Infinite Crash Loop",
+        description: "Incompatible configuration rollout v1.12.4 caused memory limit violations and infinite container crash loop in Auth ServiceControl middleware.",
+        severity: "CRITICAL",
+        status: "proposed",
+        service_id: "auth_service",
+        detected_at: new Date().toISOString(),
+        resolved_at: null,
+        root_cause: "Invalid parameter schema rollout on ServiceControl dependency",
+        confidence: 0.98
+      };
+
+      setIncidents(prev => [mockInc, ...prev]);
+      setSelectedIncident(mockInc);
+
+      const mockPlan: RemediationPlan = {
+        id: 104,
+        incident_id: "inc_gcp_rollout",
+        runbook: "rollback_config_version",
+        target: "auth_service",
+        reason: "Auth ServiceControl container failing configuration checks. Revert config payload to v1.12.3.",
+        risk: "LOW",
+        rollback_available: true,
+        status: "proposed"
+      };
+
+      setPendingApprovals([mockPlan]);
+      setSelectedIncidentPlans([mockPlan]);
+      
+      setSelectedIncidentEvents([
+        { id: 1, incident_id: "inc_gcp_rollout", timestamp: new Date().toISOString(), sender: "Detector", message: "ServiceControl container crash loop detected. Health check failed." },
+        { id: 2, incident_id: "inc_gcp_rollout", timestamp: new Date().toISOString(), sender: "Investigator", message: "Correlated deployment tags. Deployment config v1.12.4 schema invalid." },
+        { id: 3, incident_id: "inc_gcp_rollout", timestamp: new Date().toISOString(), sender: "Remediator", message: "Proposing rollback to config v1.12.3." }
+      ]);
+      
+      setActiveTab("incidents");
+    } else if (scenarioId === "5") {
+      logger("Detector", "API Gateway Edge routing crashes. Buffer overflow alert.", "error");
+      setServices(prev => prev.map(s => s.id === "gateway" ? { ...s, status: "critical" } : s));
+      
+      const mockInc: Incident = {
+        id: "inc_cf_routing",
+        title: "Cloudflare Edge Routing Bot Management Overrun",
+        description: "Edge Routing Engine process crash. Bot Management rules configuration file size exceeded maximum buffer allocation limit of 16MB.",
+        severity: "HIGH",
+        status: "proposed",
+        service_id: "gateway",
+        detected_at: new Date().toISOString(),
+        resolved_at: null,
+        root_cause: "Database permission bot rules payload size overflow (>16MB)",
+        confidence: 0.90
+      };
+
+      setIncidents(prev => [mockInc, ...prev]);
+      setSelectedIncident(mockInc);
+
+      const mockPlan: RemediationPlan = {
+        id: 105,
+        incident_id: "inc_cf_routing",
+        runbook: "truncate_bot_rules_db",
+        target: "gateway",
+        reason: "Truncate stale permission database rules to reduce configuration payload below 16MB limit.",
+        risk: "HIGH",
+        rollback_available: true,
+        status: "proposed"
+      };
+
+      setPendingApprovals([mockPlan]);
+      setSelectedIncidentPlans([mockPlan]);
+      
+      setSelectedIncidentEvents([
+        { id: 1, incident_id: "inc_cf_routing", timestamp: new Date().toISOString(), sender: "Detector", message: "API Gateway Edge routing returning 500 Internal Server Errors." },
+        { id: 2, incident_id: "inc_cf_routing", timestamp: new Date().toISOString(), sender: "Investigator", message: "Diagnostic log dump reveals routing buffer overflow (>16MB memory block)." },
+        { id: 3, incident_id: "inc_cf_routing", timestamp: new Date().toISOString(), sender: "Remediator", message: "Proposing bot rules database truncation." }
+      ]);
+      
+      setActiveTab("incidents");
+    } else if (scenarioId === "6") {
+      logger("Detector", "US-EAST-1 internal DNS resolution resolution error active", "error");
+      setServices(prev => prev.map(s => s.id === "database_service" ? { ...s, status: "critical" } : s));
+      
+      const mockInc: Incident = {
+        id: "inc_aws_dns",
+        title: "AWS US-EAST-1 DynamoDB DNS Resolution Corruption",
+        description: "Internal DNS lookup failures interrupting service dependencies. Auto-generated route tables corrupted DynamoDB DNS endpoint.",
+        severity: "CRITICAL",
+        status: "proposed",
+        service_id: "database_service",
+        detected_at: new Date().toISOString(),
+        resolved_at: null,
+        root_cause: "Stale internal route tables and DNS cache corruption",
+        confidence: 0.94
+      };
+
+      setIncidents(prev => [mockInc, ...prev]);
+      setSelectedIncident(mockInc);
+
+      const mockPlan: RemediationPlan = {
+        id: 106,
+        incident_id: "inc_aws_dns",
+        runbook: "flush_internal_dns_cache",
+        target: "database_service",
+        reason: "Force internal DNS routing table rebuild and flush local resolver cache buffers.",
+        risk: "LOW",
+        rollback_available: true,
+        status: "proposed"
+      };
+
+      setPendingApprovals([mockPlan]);
+      setSelectedIncidentPlans([mockPlan]);
+      
+      setSelectedIncidentEvents([
+        { id: 1, incident_id: "inc_aws_dns", timestamp: new Date().toISOString(), sender: "Detector", message: "Connection timeout to dynamo-db database endpoint in US-EAST-1." },
+        { id: 2, incident_id: "inc_aws_dns", timestamp: new Date().toISOString(), sender: "Investigator", message: "Internal route analysis shows stale DNS nameservers." },
+        { id: 3, incident_id: "inc_aws_dns", timestamp: new Date().toISOString(), sender: "Remediator", message: "Proposing DNS routing cache clear." }
+      ]);
+      
+      setActiveTab("incidents");
     } else {
       logger("Detector", `Telemetry anomaly detected for scenario ${scenarioId}`, "error");
     }
@@ -677,7 +876,7 @@ export default function Dashboard() {
           logger("Verifier", "Verification PASSED. Telemetry has returned to normal bounds.", "info");
           
           setIncidents(prev => prev.map(inc => inc.id === plan.incident_id ? { ...inc, status: "resolved", resolved_at: new Date().toISOString() } : inc));
-          setServices(prev => prev.map(s => s.id === plan.target ? { ...s, status: "healthy" } : s));
+          setServices(prev => prev.map(s => ({ ...s, status: "healthy" })));
           
           if (selectedIncident && selectedIncident.id === plan.incident_id) {
             setSelectedIncident(prev => prev ? { ...prev, status: "resolved", resolved_at: new Date().toISOString() } : null);
@@ -689,16 +888,35 @@ export default function Dashboard() {
             ]);
           }
 
+          let rootCause = "Database connection pool saturated.";
+          let recommendations = "Tune pool sizing parameters.";
+          if (plan.incident_id === "inc_mem_leak") {
+            rootCause = "Heap memory leak in payment session caches.";
+            recommendations = "Schedule weekly memory leaks audits.";
+          } else if (plan.incident_id === "inc_cascading_failure") {
+            rootCause = "Cascading downstream thread blocking.";
+            recommendations = "Implement circuit breakers in order service.";
+          } else if (plan.incident_id === "inc_gcp_rollout") {
+            rootCause = "ServiceControl invalid middleware schema v1.12.4.";
+            recommendations = "Enforce automated config schema pre-checks before rollouts.";
+          } else if (plan.incident_id === "inc_cf_routing") {
+            rootCause = "Edge routing database rule payload size overflow (>16MB).";
+            recommendations = "Partition permission rules database.";
+          } else if (plan.incident_id === "inc_aws_dns") {
+            rootCause = "Corrupted internal name resolutions in US-EAST-1.";
+            recommendations = "Set up dual DNS resolvers fallback.";
+          }
+
           const newReport: PostMortem = {
             id: completedReports.length + 1,
             incident_id: plan.incident_id,
             created_at: new Date().toISOString(),
             mttd: 14.5,
             mttr: 42.1,
-            root_cause: "database_service pool limits reached",
+            root_cause: rootCause,
             evidence: "SRE incident correlation timelines",
             actions_executed: [{ runbook: plan.runbook, target: plan.target, status: "completed" }],
-            preventive_recommendations: "Add connection health alerts on database metrics.",
+            preventive_recommendations: recommendations,
             timeline: [
               { timestamp: new Date().toISOString(), sender: "Detector", message: "Incident detected." },
               { timestamp: new Date().toISOString(), sender: "Verifier", message: "Verification PASSED. Metrics restored." }
@@ -729,6 +947,21 @@ export default function Dashboard() {
     if (!plan) return;
 
     logger("Operator", `Rejecting remediation plan #${planId} for incident ${plan.incident_id}`, "info");
+    
+    if (!backendConnected) {
+      logger("Core", `Remediation runbook rejected`, "warn");
+      setPendingApprovals(prev => prev.filter(p => p.id !== planId));
+      setIncidents(prev => prev.map(inc => inc.id === plan.incident_id ? { ...inc, status: "failed" } : inc));
+      if (selectedIncident && selectedIncident.id === plan.incident_id) {
+        setSelectedIncident(prev => prev ? { ...prev, status: "failed" } : null);
+        setSelectedIncidentEvents(prev => [
+          ...prev,
+          { id: 20, incident_id: plan.incident_id, timestamp: new Date().toISOString(), sender: "Operator", message: "Remediation plan rejected by operator." }
+        ]);
+      }
+      return;
+    }
+
     try {
       const res = await fetch(`${apiUrl}/api/incidents/${plan.incident_id}/reject`, {
         method: "POST"
@@ -812,15 +1045,15 @@ export default function Dashboard() {
               className="flex items-center gap-2 px-3 py-1 rounded-full bg-card border border-border text-xs shadow-sm hover:border-primary/50 cursor-pointer transition-colors duration-200"
               title="Click to configure API URL"
             >
-              <span className={`h-2 w-2 rounded-full ${backendConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" : "bg-red-500"}`}></span>
+              <span className={`h-2 w-2 rounded-full ${backendConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" : "bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)] animate-pulse"}`}></span>
               <span className="text-muted-foreground font-semibold">Backend:</span>
-              <span className="font-mono text-foreground">{backendConnected ? "Connected" : "Disconnected"}</span>
+              <span className="font-mono text-foreground">{backendConnected ? "Connected" : "Simulator"}</span>
             </div>
             
             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-card border border-border text-xs shadow-sm">
-              <span className={`h-2 w-2 rounded-full ${sseStatus === "connected" ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" : sseStatus === "connecting" ? "bg-yellow-500 animate-pulse" : "bg-red-500"}`}></span>
+              <span className={`h-2 w-2 rounded-full ${sseStatus === "connected" ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" : sseStatus === "connecting" ? "bg-yellow-500 animate-pulse" : "bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)]"}`}></span>
               <span className="text-muted-foreground">Events:</span>
-              <span className="font-mono text-foreground capitalize">{sseStatus}</span>
+              <span className="font-mono text-foreground capitalize">{sseStatus === "connected" ? "connected" : sseStatus === "connecting" ? "connecting" : "simulation"}</span>
             </div>
           </div>
         </div>
